@@ -5,6 +5,7 @@ date: '2022 1 21 '
 output: 
   html_document:
     toc: TRUE
+    number_sections: TRUE
 ---
 
 # The tidy text format {#tidytext}
