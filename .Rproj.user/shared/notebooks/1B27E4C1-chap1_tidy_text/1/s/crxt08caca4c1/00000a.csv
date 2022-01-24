@@ -1,0 +1,5 @@
+"0","library(tidytext)"
+"0","tidy_books <- original_books %>%"
+"0","  unnest_tokens(word, text)"
+"0",""
+"0","tidy_books"

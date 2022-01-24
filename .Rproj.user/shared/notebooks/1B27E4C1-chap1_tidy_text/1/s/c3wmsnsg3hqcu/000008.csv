@@ -1,0 +1,28 @@
+"0","library(gutenbergr)"
+"0",""
+"0","hgwells <- gutenberg_download(c(35, 36, 5230, 159))"
+"2","Warning in .f(.x[[i]], ...) :"
+"2","
+ "
+"2"," Could not download a book at http://aleph.gutenberg.org/3/35/35.zip
+"
+"2","Warning in .f(.x[[i]], ...) :"
+"2","
+ "
+"2"," Could not download a book at http://aleph.gutenberg.org/3/36/36.zip
+"
+"2","Warning in .f(.x[[i]], ...) :"
+"2","
+ "
+"2"," Could not download a book at http://aleph.gutenberg.org/5/2/3/5230/5230.zip
+"
+"2","Warning in .f(.x[[i]], ...) :"
+"2","
+ "
+"2"," Could not download a book at http://aleph.gutenberg.org/1/5/159/159.zip
+"
+"2","Error: Problem with `mutate()` column `gutenberg_id`.
+[34mi[39m `gutenberg_id = as.integer(gutenberg_id)`.
+[34mi[39m `gutenberg_id` must be size 0 or 1, not 4.
+[90mRun `rlang::last_error()` to see where the error occurred.[39m
+"

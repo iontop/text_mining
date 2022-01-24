@@ -1,0 +1,365 @@
+---
+title: "Sentiment analysis with tidy data"
+author: "J.H AHN"
+date: '2022 1 24 '
+output: 
+  html_document:
+    toc: TRUE
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Sentiment analysis with tidy data {#sentiment}
+
+이전 장에서 tidy text format을 배웠고, 이 포맷을 이용하여 단어 빈도를 확인할 수 있는 방법을 알아보았다. 이번 장에서는 감정 분석을 다룰 예정이다. 독자들이 텍스트에 접근할 때 단어의 감정적 의도(긍정적인지, 부정적인지, 놀람 혹은 혐오감 등)을 추정한다. 
+
+텍스트의 감정을 분석하는 한 가지 방법은 텍스트를 개별 단어의 조합으로 간주하고 전체 텍스트의 감정 내용을 개별 단어의 감정의 합으로 간주하는 것이다. 이 방법이 감정 분석을 위한 유일한 방법은 아니지만 자주 사용되는 접근 방식이고 tidy tool을 사용하기 위한 접근 방법 중 하나이다.  
+
+## The `sentiments` datasets
+
+위에서 논의한 바와 같이 텍스트에서 의견이나 감정을 평가하기 위한 여러가지 방법과 사전(lexicons)이 있다. `tidytext`package는 여러 감정 어휘에 대한 정보를 아래 세 가지 범용 사전을 통해 파악한다.  
+
+* `AFINN` from [Finn Årup Nielsen](http://www2.imm.dtu.dk/pubdb/views/publication_details.php?id=6010),
+* `bing` from [Bing Liu and collaborators](https://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html), and
+* `nrc` from [Saif Mohammad and Peter Turney](http://saifmohammad.com/WebPages/NRC-Emotion-Lexicon.htm).
+
+이 세 가지 사전은 모두 유니그램, 즉 단일 단어를 기반으로 한다. 이 사전에는 많은 영어단어가 포함되어 있으며 단어에는 긍정적/부정적 감정과 기쁨, 분노, 슬픔 등과 같은 감정에 대한 점수가 할당되어 있다. `nrc` 사전은 단어를 이진 방식("예"/"아니오")으로 긍정적, 부정적, 분노, 기대, 혐오, 두려움, 기쁨, 슬픔, 놀람, 신뢰의 범주로 분류한다. `bing` 사전은 단어를 이진 방식으로 긍정적인 범주와 부정적인 범주로 분류한다. 'AFINN' 사전은 -5에서 5 사이의 점수로 단어를 할당하며, 부정적인 점수는 부정적인 감정을 나타내고 긍정적인 점수는 긍정적인 감정을 나타낸다.  
+
+`get_sentiments()`를 사용하면 각 사전에 있는 감정 데이터를 얻을 수 있다.  
+
+```{r eval=TRUE}
+library(tidytext)
+
+get_sentiments("afinn")
+```
+
+```{r}
+get_sentiments("bing")
+```
+
+```{r eval=TRUE}
+get_sentiments("nrc")
+```
+
+이러한 감정 어휘들은 Amazon Mechanical Turk와 같은 클라우드 소싱 또는 저자들이 수집하여 클라우드 소싱, 리뷰, 트위터 데이터 조합을 사용하여 검증하였다. 이런 감정 어휘들을 200년전 쓰여진 소설에 적용하는데는 틀린 부분이 있을 수 있지만 감정을 확인하는데 큰 문제는 없다.  
+
+또한 특정 콘텐츠 영역의 텍스트와 함께 사용하도록 구성된 일부 도메인별 감정 어휘를 사용할 수도 있다. 5.3.1장에서는 금융쪽 감정어휘를 사용하여 분석하는 방법이 나와있다.  
+
+대다수의 영어 단어는 중립적이기 때문에 모든 영어 단어에 대한 감정이 실려있는 것은 아니다. 이런 방법은 "no good"이나 "not true"와 같이 단어 앞에 있는 한정자를 고려하지 않는다는 사실도 기억해 둬야 한다. 어휘 기반의 방법은 유니그램(단일단어)만을 고려한다. 많은 종류의 텍스트들이 풍자 또는 부정문이 아니므로 한정자를 고려하지 않더라도 큰 문제가 되지 않는다. 또한 주어진 텍스트에서 어떤 종류의 부정어가 중요한지 이해하기 위해 tidy text format을 이용할 수도 있다. 이에 대한 자세한 내용은 9장에서 다룬다.   
+
+마지막 주의 사항은 유니그램 감정점수를 합산하는데 사용하는 텍스트의 길이가 분석에 영향을 미칠 수 있다는 것이다. 긴 텍스트의 경우 긍정적인 감정의 평균이 0인 경우가 많고, 문장 단위나 단락 단위의 텍스트가 감정분석에 더 적합한 경우가 많다.  
+
+## Sentiment analysis with inner join
+
+tidy format의 데이터를 사용하면 `inner_join()`을 사용하여 감정분석을 할 수 있다. 불용어(stopwords)를 제거할 때 `anti_join()`을 사용하는 것처럼 감정분석을 수행할 때는 `inner_join()`을 사용한다.  
+
+NRC 사전에서 joy score로 단어를 보자. Emma에서 가장 흔한 기쁨(joy)을 표현하는 단어는 무엇일까? 1.3장에서 했듯이 'unnest_tokens()`를 사용하여 tidy format으로 변환한다. 또한 각 단어가 책의 어느 챕터의 몇 번째 줄에 나오는지 알기 위해 `group_by()`와 `mutate()`를 사용하여 새로운 열을 만들어 넣는다.  
+
+```{r tidy_books}
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+```
+
+`unnest_tokens()` argument로 word를 입력했다. 이는 감정 어휘집과 불용어 데이터셍에 'word'라는 열이 있기 때문에 이후 `inner_join()`과 `anti_join()`을 수행하는 것을 쉽게 만들어 준다.  
+
+하나의 행에 하나의 단어가 들어간 형태로 변환되어 감정 분석을 할 준비가 되었다. 먼저 기쁨(joy)을 의미하는 단어를 찾기 위해 NRC에서 `filter()`를 사용한다. 기쁨을 의미하는 단어를 NRC에서 추출하였으면 이제 `inner_join()`을 사용하여 NRC에 있는 기쁨을 의미하는 단어와 동일한 단어가 *Emma*에 얼마나 있는지 `count()`로 확인한다.  
+
+```{r eval=TRUE}
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+```
+
+```{r nrcjoy, echo = FALSE, dependson = "tidy_books"}
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+```
+
+희망, 우정, 사랑에 대한 긍정적이고 행복한 의미의 단어를 볼 수 있다. 또한 "found", "present"등 긍정적인 의미로 사용하지 않을 수 있는 단어도 볼 수 있다. 이런 단어들은 2.4장에서 자세히 볼 것이다.  
+
+각 소설에서 감정이 어떻게 변하는지도 확인할 수 있다. 대부분 dplyr 함수 몇 줄만으로 이런 작업을 수행할 수 있다.  먼저 bing 어휘집과 `inner_join()`을 사용하여 각 단어에 대한 감정 점수를 찾는다.  
+
+다음으로 각 책의 섹션마다 얼마나 많은 긍정적인 단어와 부정적인 단어가 있는지 계산한다. 내러티브에서 어디를 보고 있는지 확인하기 위해 인덱스를 만든다. 이 인덱스는 정수 나누기를 이용하고 80줄의 텍스트를 한 섹션으로 본다.   
+
+`%%`연산자는 정수 나누기를 수행하므로 `x%%y`는 `floor(x/y)`와 동일하다. 인덱스틑 80줄의 섹션 내에서 부정적인 감정과 긍정적인 감정을 누적하여 계산한다.  
+
+작은 섹션에는 감정을 평가할 적절한 단어가 부족할 수도 있다. 이 책의 경우 80줄을 사용하는 것이 효과적이지만 때에 따라 개별 텍스트나 더 긴 줄이 효과적일 때도 있다. 다음으로 `pivot_wider()`를 사용하여 별도의 열에 부정적인 감정과 긍정적인 감정을 넣는다.   
+
+```{r janeaustensentiment, dependson = "tidy_books"}
+library(tidyr)
+
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(book, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+```
+
+이제 소설의 줄거리에 따라 감정 점수를 시각화 할 수 있다. 텍스트 섹션에서 내러티브 시간을 추적하는 X축을 'index'로 둔 점에 주의하여야 한다.  
+
+```{r sentimentplot, dependson = "janeaustensentiment", fig.width=6, fig.height=7, fig.cap="Sentiment through the narratives of Jane Austen's novels"}
+library(ggplot2)
+
+ggplot(jane_austen_sentiment, aes(index, sentiment, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free_x")
+```
+
+그림 2.2에서 각 소설의 플롯이 이야기의 전개에 따라 긍정적이거나 부정적인 감정으로 변하는 것을 볼 수 있다.  
+
+## Comparing the three sentiment dictionaries
+
+감정 어휘에 대한 몇 가지 옵션을 사용하면 어떤 것이 목적에 적합한지에 대한 추가 정보가 필요할 수도 있다. 세 가지 감정 어휘집을 모두 사용하고 *오만과편견*의 내러티브 전반에 걸쳐 감정이 어떻게 변화하는지를 살펴본다. 먼저 `filter()`를 사용하여 소설을 선택한다.  
+
+```{r pride_prejudice, dependson = "tidy_books"}
+pride_prejudice <- tidy_books %>% 
+  filter(book == "Pride & Prejudice")
+
+pride_prejudice
+```
+
+`inner_join()`을 사용하되 다른 방법으로 계산한다.   
+
+위에서 AFINN 사전은 -5에서 5사이의 숫자 점수로 감정을 측정하는 반면 다른 두 사전은 단어를 긍정적이든 부정적이든 이진 방식으로 분류한다는 것을 유념해야 한다. 소설 전체의 텍스트에서 감정 점수를 찾으려면 다른 두 사전 대신 AFINN 사전을 사용해야 한다.  
+
+다시 정수 나누기(`%%`)를 사용하여 여러 줄에 걸쳐있는 더 큰 텍스트 섹션을 정의하고 `count()`, `pivot_wider()`및`mutate()`를 동일하게 사용하여 각 섹션별 감정을 수치화 할 수 있다.  
+
+```{r eval=TRUE}
+afinn <- pride_prejudice %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  pride_prejudice %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  pride_prejudice %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+```
+
+```{r comparesentiment, echo = FALSE, dependson = "pride_prejudice"}
+afinn <- pride_prejudice %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  pride_prejudice %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  pride_prejudice %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+```
+
+각 감정 어휘집에 대한 소설 텍스트의 각 청크에서 순감정(긍정-부정)을 계산했다. 이제 이것을 묶어 시각화를 해 본다.  
+
+(ref:comparecap) Comparing three sentiment lexicons using *Pride and Prejudice*
+
+```{r compareplot, dependson = "comparesentiment", fig.cap="(ref:comparecap)"}
+bind_rows(afinn, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+감정을 계산하기 위해 사용한 세 가지 감정 어휘집으로 분석한 결과 절대값은 차이가 나지만 상대적인 궤적은 비슷하게 나타난다.  
+
+AFINN 사전은 가장 큰 절대값과 높은 긍정적인 감정 평가를 보여준다. Bing et al. 사전은 절대값이 낮고 연속적인 긍정적이거나 부정적인 텍스트 블록에 더 큰 값을 주는 것처럼 보인다. NRC 결과는 다른 두 사전에 비해 더 많은 긍정적 감정이 있는 것으로 평가하지만 상대적인 변화를 고려하면 비슷한 결과를 보여준다. NRC를 이용한 감정 평가는 긍정적인 의미로 평가하는 경우가 많고 AFINN은 분산이 더 크다. Bing et al.을 이요하면 유사한 텍스트를 길게 이어서 평가하는 것 처럼 보이지만 모두 전반적인 추세는 비슷하다고 볼 수 있다.  
+
+NRC와 Bing et al.내에 얼마나 많은 긍정적인 단어와 부정적인 단어가 있는지 살펴보자.   
+
+```{r echo=FALSE}
+get_sentiments("nrc") %>% 
+  filter(sentiment %in% c("positive", "negative")) %>% 
+  count(sentiment)
+```
+
+
+```{r}
+get_sentiments("bing") %>% 
+  count(sentiment)
+```
+
+두 사전 모두 긍정적인 단어보다 부정적인 단어가 더 많지만 Bing 사전의 긍정적인 단어의 비율이 더 높다. 이러한 내용의 차이로 위의 그래프에서 볼 수 있는 각 사전 별 감정 평가가 달라질 수 있다. NRC 사전의 부정적인 단어가 제인 오스틴이 잘 사용하는 단어와 일치하지 않을 경우 상대적인 감정 변화는 유사하지만 절대적인 감정 평가 값에는 차이가 날 수 있다. 따라서 분석을 위해 감정 어휘집을 선택할 때 이러한 부분을 염두해 두어야 한다.  
+
+## Most common positive and negative words {#most-positive-negative}
+
+감정과 단어가 모두 포함된 데이터 프레임이 가지는 이점으로는 각 감정에 기여하는 단어 수를 분석할 수 있다는 것이다. 아래에는 'word'와 'sentiment'를 인수로 `count()`를 사용하면 각 단어가 각 감정에 얼마나 기여했는지를 알 수 있다.   
+
+```{r wordcounts, dependson = "tidy_books"}
+bing_word_counts <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts
+```
+
+이 데이터는 파이프 연산자를 사용하여 바로 ggplot2와 연결하여 시각화 할 수 있다. 
+
+```{r pipetoplot, dependson = "wordcounts", fig.width=6, fig.height=3, fig.cap="Words that contribute to positive and negative sentiment in Jane Austen's novels"}
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
+
+그림 2.4를 사용하면 감정 분석에서 이상한 점을 확인 할 수 있다. "miss"라는 단어는 부정적인 의미로 어휘집에 들어가 있지만 제인 오스틴의 작품에서 젊은 미혼 여성을 칭하는 단어로 쓰이기도 한다. 따라서 이런 경우와 같이 감정 평가에 사용할 수 없는 불용어와 같은 단어라면 불용어 목록에 포함시킬 수 있다.  
+
+```{r}
+custom_stop_words <- bind_rows(tibble(word = c("miss"),  
+                                      lexicon = c("custom")), 
+                               stop_words)
+
+custom_stop_words
+```
+
+
+## Wordclouds
+
+tidy text mining을 사용하면 ggplot2에서 잘 작동하지만 다른 플롯을 그릴 때도 유용하다.  
+
+예를 들어 기본 R그래픽을 사용하는 `wordcloud`package를 고려할 수 있다. 제인 오스틴의 작품 전체에서 가장 흔한 단어를 그림 2.5를 통해 확인했지만 이번에는 Word Cloud를 사용해서 확인해 본다.  
+
+```{r firstwordcloud, dependson = "tidy_books", fig.height=7, fig.width=7, fig.cap="The most common words in Jane Austen's novels"}
+library(wordcloud)
+
+tidy_books %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+
+`comparison.cloud()`와 같은 다른 함수를 사용하려면 `reshape2`package의 `acast()`를 사용하여 데이터 프레임을 행렬로 변환해야 한다. `inner_join()`을 사용하여 단어에 해당하는 감정(positive 혹은 negative)을 추가하고 `count()`를 사용하여 각 단어가 몇 번씩 나왔는지 정렬한다. 그 다음 `acast()`로 데이터 프레임을 매트릭스 형식으로 변경 후 `comparison.cloud()`를 사용하여 시각화 한다.
+
+```{r wordcloud, dependson = "tidy_books", fig.height=6, fig.width=6, fig.cap="Most common positive and negative words in Jane Austen's novels"}
+library(reshape2)
+
+tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+```
+
+그림 2.6에서 단어 크기는 빈도 수에 비례한다. 이 시각화를 사용하여 가장 중요한 긍정적인 단어와 부정적인 단어를 확인할 수 있지만 감정 간의 단어 크기는 비교할 수 없다.  
+
+## Looking at units beyond just words
+
+단어 수준에서 토큰화하여 많은 유용한 작업을 수행할 수 있지만 다른 텍스트 단위로 분석을 수행하는 것이 필요한 경우도 있다. 예를 들어 일부 감정 분석 알고리즘은 문장 전체의 감정을 이해하기 위해 유니그램(단일단어)이상을 분석한다. 이 알고리즘을 이용하면 아래 문장이 부정문임을 알고 좋은 날이 아니라는 것으로 이해한다.  
+
+> I am not having a good day.
+
+`coreNLP`package, `cleanNLP`package, `sentimentr`package등의 R package는 이러한 감정분석 알고리즘의 예이다. 이를 위해 텍스트를 문장으로 토큰화 할 수 있으며 이러한 경우 출력 열에 새로운 이름을 사용하는 것이 좋다.  
+
+```{r PandP}
+p_and_p_sentences <- tibble(text = prideprejudice) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+```
+
+Let's look at just one.
+
+```{r PandPsentences, dependson = "PandP"}
+p_and_p_sentences$sentence[2]
+```
+
+문장 토큰화는 UTF-8으로 인코딩된 텍스트, 특히 대화를 나타내는 부분에서 약간 문제가 있어 보인다. ASCII 구두점을 사용하면 훨씬 나은데 토큰화를 하기 전에 `mutate()`에서 `iconv(text, to = 'latin1')`과 같은 형태로 `iconv()`를 사용하는 것이 좋다. `iconv()`는 인코딩간 문자 벡터를 변환해주는 함수이다.  
+
+`unnest_tokens()`의 또 다른 옵션은 정규식패턴(regex)을 사용하여 토큰으로 분할하는 것이다. 예를 들어 정규식 패턴을 사용하여 소설 내용을 챕터 별로 데이터 프레임 형식으로 나눌 수 있다.   
+
+```{r austen_chapters, dependson = "tidy_books"}
+austen_chapters <- austen_books() %>%
+  group_by(book) %>%
+  unnest_tokens(chapter, text, token = "regex", 
+                pattern = "Chapter|CHAPTER [\\dIVXLC]") %>%
+  ungroup()
+
+austen_chapters %>% 
+  group_by(book) %>% 
+  summarise(chapters = n())
+```
+
+각 소설의 챕터 수를 구해봤다. (각 소설 제목에 대한 행도 포함되어 있다.) 예를 들어 'austen_chapters' 데이터 프레임에서 각 행은 하나의 챕터에 해당한다.  
+
+이 장의 시작 부분에서 유사하게 정규표현식을 사용하여 한 행에 한 단어씩 들어간 tidy format의 데이터 프레임에 대해 오스틴의 소설에서 챕터가 어디에 있는지 찾았다. tidy text 분석을 사용해서 소설에서 가장 부정적인 챕터가 어디인지 찾을 수 있다. 이를 위해 먼저 bing 사전에서 부정적인 단어 목록을 가져온다.  
+
+다음으로 각 챕터의 길이를 정규할 할 수 있도록 각 챕터의 단어수를 데이터 프레임으로 만든다.  
+
+마지막으로 각 챕터에서 부정적인 의미를 가진 단어를 구하고 각 챕터의 총 단어수로 나눈다. 그러면 부정적인 단어의 비율이 가장 높은 챕터를 찾을 수 있다.  
+
+```{r chapters, dependson = "tidy_books"}
+bingnegative <- get_sentiments("bing") %>% 
+  filter(sentiment == "negative")
+
+wordcounts <- tidy_books %>%
+  group_by(book, chapter) %>%
+  summarize(words = n())
+
+tidy_books %>%
+  semi_join(bingnegative) %>%
+  group_by(book, chapter) %>%
+  summarize(negativewords = n()) %>%
+  left_join(wordcounts, by = c("book", "chapter")) %>%
+  mutate(ratio = negativewords/words) %>%
+  filter(chapter != 0) %>%
+  slice_max(ratio, n = 1) %>% 
+  ungroup()
+```
+
+각 책에서 가장 슬픈 단어가 포함된 챕터는 부정적인 단어 대비 총 단어수의 비율로 정규화되어 나타난다. *Sense and Sensibility*의 43장에서 Marianne은 중병에 걸려 죽음을 눈앞에 두고 있으며, *오만과 편견*의 34장에서 Mr. Darcy는 처음으로 프러포즈한다. *맨스필드 파크*의 46장 모든 사람들이 헨리의 추악한 간통에 대해 알게 되면서 거의 끝나가고 있으며, *엠마*의 15장은 무시무시한 엘튼 씨가 청혼할 때이며, *노생거 수도원*의 21장에서 캐서린은 살인의 환상에 빠져있고 *설득*의 4장은 독자가 앤이 웬트워스 대위를 거부하고 그녀가 얼마나 슬펐고 그녀가 그것을 깨달았는지 얼마나 끔찍한 실수인지에 대한 완전한 회상을 하는 때이다.
+
+## Summary
+
+감정 분석은 텍스트에 표현된 태도와 의견을 이해하는 방법을 제공한다. 이번 장에서 tidy data 원칙을 사용하여 감정분석을 하는 방법을 배웠다. 텍스트 데이터가 깔끔한 구조일 때 감정 분석을 `inner_join()`으로 구현할 수 있음을 확인했고, 감정 분석을 사용하여 전체 줄거리가 어떻게 변하는지를 시각화 할 수 있었다.  

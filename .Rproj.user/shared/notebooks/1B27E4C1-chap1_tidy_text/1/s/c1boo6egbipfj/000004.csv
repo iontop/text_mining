@@ -1,0 +1,10 @@
+"0","bronte <- gutenberg_download(767)
+"
+"2","Warning in .f(.x[[i]], ...) :"
+"2","
+ "
+"2"," Could not download a book at http://aleph.gutenberg.org/7/6/767/767.zip
+"
+"2","Warning:"
+"2"," Unknown or uninitialised column: `text`.
+"

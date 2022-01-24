@@ -1,0 +1,4 @@
+"0","knitr::include_graphics(""images/tmwr_0101.png"")"
+"2","Error in knitr::include_graphics(""images/tmwr_0101.png"") : 
+  Cannot find the file(s): ""images/tmwr_0101.png""
+"
