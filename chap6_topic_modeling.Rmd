@@ -1,0 +1,449 @@
+---
+title: "Topic modeling"
+author: "J.H AHN"
+date: '2022 1 26 '
+output: 
+  html_document:
+    toc: TRUE
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Topic modeling {#topicmodeling}
+
+텍스트 마이닝에서는 블로그 게시물이나 뉴스 기사와 같은 문서 모음이 있는 경우가 많고, 이를 개별적으로 이해할 수 있도록 그룹으로 나눈다. 토픽 모델링은 비지도 분류 방법으로 무엇을 찾고 있는지 확실하지 않은 경우에도 숫자 데이터를 클러스터링해서 그룹을 찾게 해준다.  
+
+Latent Dirichlet allocation (LDA)는 토픽 모델링을 적합(fit)하는데 널리 쓰이는 방법이다. 각 문서를 주제의 혼합물로 보고 각 주제는 단어들의 혼합물로 본다. 이를 통해 문서는 개별적인 그룹으로 분리된 된 것이 아닌 자연어의 일반적인 사용을 반영하는 방식으로 서로 중첩되어 있다고 본다.  
+
+```{r tidyflowchartch6, echo = FALSE, out.width = '100%', fig.cap = "A flowchart of a text analysis that incorporates topic modeling. The topicmodels package takes a Document-Term Matrix as input and produces a model that can be tided by tidytext, such that it can be manipulated and visualized with dplyr and ggplot2."}
+knitr::include_graphics("https://www.tidytextmining.com/images/tmwr_0601.png")
+```
+
+그림 6.1에서 볼 수 있듯이 이 책에서 사용한 것과 같은 tidy tools로 토픽 모델링을 하기 위해서는 tidy text format을 사용해야 한다. 이 챕터에서는 [topicmodels package](https://cran.r-project.org/package=topicmodels)의 `LDA` objects를 사용하여 작업하는 방법을 알아 볼 것이다. 특히 이러한 모델을 ggplot2나 dplyr등으로 조작하는 방법도 알아볼 것이다. 여러 권의 책에서 챕터를 클러스터링하는 예를 살펴보고 토픽 모델링이 책 내용을 기반으로 4권 책 사이의 차이점을 학습하는 코드를 짜 볼 것이다.  
+
+## Latent Dirichlet allocation
+
+Latent Dirichlet allocation (LDA)는 토픽 모델링을 위한 가장 일반적인 알고리즘 중 하나이다. 모델 이면의 수학적인 내용에 대해서 자세히 모르더라도 두 가지 원칙을 통해 모델을 이해할 수 있다. 
+
+* **Every document is a mixture of topics.**  모든 문서는 주제들이 혼합되어 있다고 본다. 각 문서에는 특정 비율로 여러 주제의 단어가 포함되어 있을 것이다. 예를 들어 2개의 주제가 혼합되어 있다면 문서 1에는 주제 A가 90%, 주제 B가 10%이고, 문서 2는 주제 A가 30%, 주제 B가 70% 혼합되어 있다고 말할 수 있다.  
+* **Every topic is a mixture of words.**  모든 주제는 단어들이 혼합되어 있다고 본다. 예를 들어 "politics(정치)"와 "entertainment(예능)"에 대한 주제가 있는 미국 뉴스를 생각해보자. 주제가 정치라면 "President", "Congress","government"와 같은 단어들의 빈도가 높게 나타날 것이고, 주제가 예능이라면 "movies", "television", "actor"와 같은 단어의 빈도가 높게 나타날 것이다. 중요한 것은 주제가 다르더라도 특정 단어는 공유될 수 있다는 것이다. 예를 들어 "budget"과 같은 단어는 두 주제에서 공히 자주 나올 가능성이 높다.  
+
+LDA는 이 두가지를 동시에 추정하는 수학적 방법이다. 각 토픽과 관련된 단어의 조합을 찾는 동시에 각 문서를 설명하는 토픽의 조합을 결정한다. 
+
+5장에서 DocumentTermMatrix의 예로 `topicmodels`package에서 제공하는 `AssociatedPress` dataset을 소개했었다. 이것은 대부분 1988년경에 발행된 2246개의 미국 뉴스 에이전시들의 뉴스를 모은 것이다.  
+
+```{r}
+library(topicmodels)
+
+data("AssociatedPress")
+AssociatedPress
+```
+
+`topicmodels`package에 있는 `LDA()`를 사용한다. 두 가지 주제로 나눌 것이기 때문에 `k = 2`로 설정한다.  
+
+실제로 거의 모든 주제 모델은 더 큰 `k`를 사용하지만 이 분석 접근 방식을 더 많은 수의 주제로 확장되는 것을 볼 수 있을 것이다.  
+
+이 함수는 단어가 토픽과 연관되는 방식 및 토픽이 문서와 연관되는 방식과 같은 model fit의 전체 세부내용이 포함된 object를 반환한다.  
+
+```{r ap_lda}
+# set a seed so that the output of the model is predictable
+ap_lda <- LDA(AssociatedPress, k = 2, control = list(seed = 1234))
+ap_lda
+```
+
+model을 fitting하는 것은 쉽다. 분석의 나머지는 `tidytext`package의 `tidy()`를 사용하여 모델을 탐색하고 해석한다.   
+
+### Word-topic probabilities
+
+5장에서 `broom`package에 있는 model onject를 정리하기 위한 `tidy()`를 소개했었다. `tidytext`package는 모델에서 $\beta$ ("beta")라 불리는 단어 당 주제별 확률을 추출하는 방법을 제공한다.  
+
+```{r ap_topics}
+library(tidytext)
+
+ap_topics <- tidy(ap_lda, matrix = "beta")
+ap_topics
+```
+
+이렇게 하면 모델이 one-topic-per-term-per-row format으로 변환된다. 각 조합에 대해 모델은 해당 토픽에서 단어가 나타날 확률을 계산해준다. 예를 들어 "aaron" 이라는 단어가 topic 1에서 나올 확률은 $1.686917\times 10^{-12}$이지만 topic 2에서 나올 확률은 $3.8959408\times 10^{-5}$이다.  
+
+`dplyr::slice_max()`를 사용하여 각 토픽에서 가장 자주 나오는 단어 10개를 추려낼 수 있다. tidy format으로 ggplot2로 시각화 하는데 적합하다. (그림 6.2 참조)  
+
+```{r aptoptermsplot, dependson = "ap_topics", fig.height=4, fig.width=7, fig.cap = "The terms that are most common within each topic"}
+library(ggplot2)
+library(dplyr)
+
+ap_top_terms <- ap_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+ap_top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+시각화를 통해 기사에서 추출한 두 가지 주제를 짐작해볼 수 있다. topic 1에서 가장 흔한 단어는 "percent", "million", "billion",  "company" 인것으로 보아 비즈니스나 금융관련 뉴스임을 짐작 할 수 있고, topic 2에서 가장 흔하게 나오는 단어는 "president", "government", "soviet" 인 것으로 보아 정치관련 뉴스임을 짐작 할 수 있다. 각 토픽의 단어를 보면 "new"나 "people" 같은 단어들은 공통으로 많이 쓰였음을 알 수 있다. 이것은 "hard clustering" methods와 반대되는 토픽 모델링의 장점으로 자연어에서는 토픽이 다르더라도 사용되는 단어는 중첩될 수 있다는 것을 인식하여 처리했다는 의미이다.  
+
+또 다른 분석 방법으로 topic 1과 topic 2의 $\beta$가 가장 큰 차이를 보이는 단어를 찾아볼 수도 있다. 두 항목의 차이는 로그 비율을 기반으로 추정한다: $\log_2(\frac{\beta_2}{\beta_1})$ (로그 비율은 차이를 대칭적으로 만들어 주기 위해 사용한다. 즉 로그 비율을 사용하면 $\beta_2$가 두 배 더 크면 로그 비율 = 1이 되고, $\beta_1$이 두 배 더 크면 로그 비율 = -1이 된다.) 특히 관련있는 단어들만으로 단어 종류를 제한하기 위해서 하나 이상의 토픽에서 $\beta$가 $\frac{1}{1000}$ 보다 큰 단어만 선택할 수도 있다. 
+
+```{r beta_wide}
+library(tidyr)
+
+beta_wide <- ap_topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>% 
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(log_ratio = log2(topic2 / topic1))
+
+beta_wide
+```
+
+두 topic 사이에서 가장 큰 차이를 보이는 단어는 그림 6.3에 시각화 되어 있다.  
+
+(ref:topiccap) Words with the greatest difference in $\beta$ between topic 2 and topic 1
+
+```{r topiccompare, dependson = "beta_wide", fig.cap = "(ref:topiccap)", echo = FALSE}
+beta_wide %>%
+  group_by(direction = log_ratio > 0) %>%
+  slice_max(abs(log_ratio), n = 10) %>% 
+  ungroup() %>%
+  mutate(term = reorder(term, log_ratio)) %>%
+  ggplot(aes(log_ratio, term)) +
+  geom_col() +
+  labs(x = "Log2 ratio of beta in topic 2 / topic 1", y = NULL)
+```
+
+topic 2에서 더 많이 사용되는 단어는 "dukakis"나 "gorbachev"같은 정치인의 이름 뿐 아니라 "democratic"이나 "republican" 같은 정당명이 포함되어 있음을 알 수 있다. topic 1은 "yen"이나 "dollar"같은 통화와 "index", "prices", "rates"같은 금융관련 단어가 있다. 이것을 통해 알고리즘이 식별한 두 주제가 각각 정치와 금융관련 뉴스임을 확인할 수 있다.   
+
+### Document-topic probabilities
+
+각 topic을 단어들의 혼합으로 추정하는 것 외에도 LDA는 각 문서를 topic의 혼합으로 보고 모델링한다. `tidy()`에서 'matrix = "gamma"`로 설정하면 $\gamma$ ("gamma")로 불리는 문서별 topic의 확률을 알 수 있다. 
+
+```{r ap_documents}
+ap_documents <- tidy(ap_lda, matrix = "gamma")
+ap_documents
+```
+
+각 값들은 topic으로부터 생성된 문서의 단어 비율을 추정한 것이다. 예를 들어 document 1의 단어 중 약 24.81%만이 topic 1에서 생성된 것으로 추정했다는 뜻이다.  
+
+이러한 문서의 많은 부분이 두 가지 topic을 혼합하여 가져온 것임을 알 수 있지만 document 6를 보면 거의 대부분 topic 2에서 가져왔다고 볼 수 있다. (topic 1에서 가져왔을 확률을 나타내는 $\gamma$가 0.000588로 거의 0에 가깝기 때문) 이것이 정말 그런지 확인하기 위해 document-term matrix를 `tidy()`로 변환하여 해당 문서에서 가장 흔하게 나오는 단어들이 무엇인지 확인해 볼 수 있다.  
+
+```{r ap_document_6}
+tidy(AssociatedPress) %>%
+  filter(document == 6) %>%
+  arrange(desc(count))
+```
+
+가장 흔하게 쓰여지 단어들을 보면 미국 정부(American government)와 파나마 독재자 마누엘 노리에가(Manuel Noriega)의 관계에 대한 기사로 추정된다. 즉 알고리즘이 이 기사를 topic 2 (political/national news)에 포함되는 것으로 분류한 것이 적합했다는 것을 확인할 수 있다.  
+
+## Example: the great library heist {#library-heist}
+
+통계적 방법을 검토할 때 정답을 알고 있는 매우 간단한 경우에 시도해 볼 만한 유용한 방법이 있다. 예를 들어 4개의 개별 토픽이 있고 여기에 관련된 문서 셋을 수집한 다음 토픽 모델링을 수행하여 알고리즘이 4개의 개별 토픽을 올바르게 구별할 수 있는지 확인할 수 있다. 이를 통해서 사용한 방법이 유용한지 확인하고 어디가 잘못된 것인지 알 수 있다. 고전 문학을 이용해서 이 방법을 시연해 본다.  
+
+누군가 서재에 침입하여 아래 4권의 책을 모두 찢어두었다고 가정해보자: 
+
+* *Great Expectations* by Charles Dickens
+* *The War of the Worlds* by H.G. Wells
+* *Twenty Thousand Leagues Under the Sea* by Jules Verne
+* *Pride and Prejudice* by Jane Austen
+
+침입한 사람은 책을 각 챕터별로 찢어서 한 군데 모아두었다. 어떻게 하면 뒤섞여 있는 챕터들을 구분하고 모아서 원래 책으로 복원할 수 있을까? 개별 챕터가 **레이블이 지정되지 않는 것**이기 때문에 어렵다. 이것들을 그룹으로 구분할 때 어떤 단어를 이용해야 할 지 알 수 없다. 따라서 토픽 모델링을 사용해서 어떤 챕터 클러스터가 특정한 토픽에 포함되는지, 각각의 토픽이 어떤 책을 대표하는 것인지를 찾을 것이다.
+
+3장에서 소개된 구텐베르그 패키지를 사용하여 이 네 권의 책을 검색할 것이다.  
+
+```{r titles}
+titles <- c("Twenty Thousand Leagues under the Sea", 
+            "The War of the Worlds",
+            "Pride and Prejudice", 
+            "Great Expectations")
+```
+
+```{r eval = FALSE}
+library(gutenbergr)
+
+my_mirror <- "http://mirrors.xmission.com/gutenberg/"
+
+books <- gutenberg_works(title %in% titles) %>%
+  gutenberg_download(meta_fields = "title", mirror = my_mirror)
+```
+
+```{r topic_books, echo = FALSE}
+load("data/books.rda")
+```
+
+전처리를 통해 챕터별로 나누고 `tidytext::unnest_tokens()`을 사용하여 단어로 분리한 다음 stopwords를 제거한다. 모든 챕터들을 별도의 문서(document)로 취급하고 각각을 `Great Expectations_1` 혹은 `Pride and Prejudice_11`과 같은 이름을 가지도록 만든다.  
+
+```{r word_counts, dependson = "topic_books"}
+library(stringr)
+
+# divide into documents, each representing one chapter
+by_chapter <- books %>%
+  group_by(title) %>%
+  mutate(chapter = cumsum(str_detect(
+    text, regex("^chapter ", ignore_case = TRUE)
+  ))) %>%
+  ungroup() %>%
+  filter(chapter > 0) %>%
+  unite(document, title, chapter)
+
+# split into words
+by_chapter_word <- by_chapter %>%
+  unnest_tokens(word, text)
+
+# find document-word counts
+word_counts <- by_chapter_word %>%
+  anti_join(stop_words) %>%
+  count(document, word, sort = TRUE) %>%
+  ungroup()
+
+word_counts
+```
+
+### LDA on chapters
+
+현재 `word_counts`dataframe은 one-term-per-document-per-row로 된 tidy format이지만 `topicmodels`package를 사용하기 위해서는 `DocumentTermMatrix`가 필요하다. 챕터 5.2에서 설명한대로 `tidytext::cast_dtm()`을 사용하여 one-token-per-row table을 `DocumentTermMatrix`로 변환할 수 있다.  
+
+```{r chapters_dtm}
+chapters_dtm <- word_counts %>%
+  cast_dtm(document, word, n)
+
+chapters_dtm
+```
+
+그 다음 `LDA()`함수를 써서 4개의 토픽 모델을 만든다. 이 경우는 책이 4권이라는 것을 알고 있기 때문에 `k = 4`로 입력한다.  
+
+```{r chapters_lda}
+chapters_lda <- LDA(chapters_dtm, k = 4, control = list(seed = 1234))
+chapters_lda
+```
+
+Associated Press data에서 해봤던 것처럼 per-topic-per-word probabilities를 확인해 본다.  
+
+```{r chapter_topics}
+chapter_topics <- tidy(chapters_lda, matrix = "beta")
+chapter_topics
+```
+
+이렇게 하면 모델이 one-topic-per-term-per-row format으로 변환된다. 각 조합에 대해 모델은 각 토픽에서 각 단어들이 발견될 확률을 계산해 준다. 예를 들어 "joe"라는 단어는 topic 1,2,3에서 생성될 확률은 거의 0이지만 topic 4에서는 1.45%정도가 된다.   
+
+`dplyr::slice_max()`를 사용해서 각 주제별로 상위 5개의 단어를 찾아본다.  
+
+```{r top_terms}
+top_terms <- chapter_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms
+```
+
+tidy format으로 나온 결과를 이용하여 ggplot2로 시각화한다. (그림 6.4참조)
+
+```{r toptermsplot, fig.height=6, fig.width=7, fig.cap = "The terms that are most common within each topic"}
+library(ggplot2)
+
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+찾아 낸 주제들은 4권의 책들과 연관이 있는 것이 분명해 보인다. "captain", "nautilus", "sea", "nemo"는 *Twenty Thousand Leagues Under the Sea*에 속할 것이고, "jane", "darcy", "elizabeth"는 *Pride and Prejudice*일 것이다. "pip"과 "joe"는 *Great Expectations*에서 나왔을 것이고 "martians", "black", "night"는 *The War of the Worlds*에서 나왔을 것이다. 또한 LDA가 "fuzzy clustering" method이기 때문에 topic 1과 topic 4의 "miss", topic 3과 topic 4의 "time"과 같이 중첩되게 나타나는 단어도 있을 수 있다.  
+
+### Per-document classification {#per-document}
+
+분석에서 각각의 문서는 하나의 챕터를 의미한다. 따라서 각 문서(= 챕터)와 연관된 토픽을 찾을 수 있었다. 그렇다면 챕터를 올바른 책에 다시 넣을 수 있을까? per-document-per-topic probabilities, $\gamma$ ("gamma")를 이용하여 이를 찾을 수 있다.  
+
+```{r chapters_gamma_raw}
+chapters_gamma <- tidy(chapters_lda, matrix = "gamma")
+chapters_gamma
+```
+
+각 $\gamma$ 값은 토픽으로부터 생성한 챕터(document)에 해당 단어가 나올 확률을 예측한 값이다. 예를 들어 Great Expectations_57 의 단어가 topic 1 (Pride and Prejudice)에서 나올 확률이 거의 0%(1.352e-05)에 가까운 것으로 추정한다.   
+
+이제 토픽에 대한 확률을 구했으므로 비지도 학습법이 4권의 책을 얼마나 잘 구별해내는지 확인할 수 있다. 책에 있는 챕터들이 해당 토픽에 맞게 대부분 구별된 것으로 보인다.  
+
+먼저 챕터(document)를 제목과 챕터로 분리하고 각각 챕터별 토픽별 확률(per-document-per-topic probability)로 시각화 할 수 있다.(그림 6.5 참조)  
+
+```{r chapters_gamma}
+chapters_gamma <- chapters_gamma %>%
+  separate(document, c("title", "chapter"), sep = "_", convert = TRUE)
+
+chapters_gamma
+```
+
+```{r chaptersldagamma, fig.width=6, fig.height=6, fig.cap = "The gamma probabilities for each chapter within each book"}
+# reorder titles in order of topic 1, topic 2, etc before plotting
+chapters_gamma %>%
+  mutate(title = reorder(title, gamma * topic)) %>%
+  ggplot(aes(factor(topic), gamma)) +
+  geom_boxplot() +
+  facet_wrap(~ title) +
+  labs(x = "topic", y = expression(gamma))
+```
+
+*Pride and Prejudice*, *War of the Worlds*과 *Twenty Thousand Leagues Under the Sea* 는 각 주제에 맞게 구별된 것을 확인할 수 있다. 
+
+Great Expectations(topic 4이어야 하는 책)의 일부 챕터들이 다른 주제들과 관련이 있어 보인다. 챕터와 가장 관련이 있는 주제가 다른 책에 속하는 경우가 있는지 확인하여 효과적으로 분류하게 위해서 `slice_max()`를 사용하여 각 챕터 별로 가장 관련이 높은 주제를 찾는다.  
+
+```{r chapter_classifications, dependson = "chapters_gamma"}
+chapter_classifications <- chapters_gamma %>%
+  group_by(title, chapter) %>%
+  slice_max(gamma) %>%
+  ungroup()
+
+chapter_classifications
+```
+
+그 다음 각 책의 "consensus" topic(챕터들 사이에서 가장 일반적인 topic)와 다른 topic들을 비교해 가면서 어느 것이 잘못 분류된것인지 찾아본다.  
+
+```{r book_topics, dependson = "chapter_classifications"}
+book_topics <- chapter_classifications %>%
+  count(title, topic) %>%
+  group_by(title) %>%
+  slice_max(n, n = 1) %>% 
+  ungroup() %>%
+  transmute(consensus = title, topic)
+
+chapter_classifications %>%
+  inner_join(book_topics, by = "topic") %>%
+  filter(title != consensus)
+```
+
+LDA가 *Great Expectations*의 두 챕터를 잘못 분류하여 topic 1과 topic 3인 것으로 판단했었다. 이 정도는 비지도 학습법으로 한 것 치고는 나쁘지 않은 결과로 볼 수 있다.  
+
+### By word assignments: `augment`
+
+LDA 알고리즘의 한 단계는 각 문서의 각각의 단어를 토픽에 할당해주는 것이다. 문서에서 해당 토픽에 더 많은 단어가 할당 될 수록 해당 문서의 토픽 분류에 더 많은 가중치 ('gamma')가 부여된다.  
+
+원문서-단어쌍(original document-word pairs)을 가져와서 각 문서에서 어떤 단어가 어떤 토픽에 할당되었는지 찾을 수 있다. 이런 작업은 `broom::argument()`를 사용하여 수행한다. `tidy()`가 모델의 통계 구성 요소를 보여준다면 `argument()`는 모델을 사용하여 원본 데이터의 각 관측값에 정보를 추가한다.  
+
+```{r assignments, dependson = "chapters_lda"}
+assignments <- augment(chapters_lda, data = chapters_dtm)
+assignments
+```
+
+`argument()`를 사용하면 책-단어 수가 정리된 tidy data frame을 출력하고 여기에는 각 단어들이 어느 주제에 할당되어 있는지가 .topic열에 추가되어 있다. (`argument()`에 의해서 추가된 열은 항상 '.'으로 시작하여 기존에 있던 열을 덮어쓰는 것을 방지한다.) 어떤 단어가 잘못 분류되었는지 찾기 위해 이 data frame을 책 제목과 합친다.  
+
+```{r assignments2, dependson = c("assignments", "book_topics")}
+assignments <- assignments %>%
+  separate(document, c("title", "chapter"), 
+           sep = "_", convert = TRUE) %>%
+  inner_join(book_topics, by = c(".topic" = "topic"))
+
+assignments
+```
+
+실제 책의 제목과 할당된 책 제목(consensus)을 비교해 본다. `dplyr::count()`와 `ggplot2::goem_tile()`을 사용하면 한 책의 단어가 다른 책에 얼마나 할당되었는지 빈도를 보여주는 **오분류표(confusion matrix)**를 시각화 할 수 있다. (그림 6.6참조)  
+
+```{r confusionmatrix, dependson = "assignments2", fig.cap = "Confusion matrix showing where LDA assigned the words from each book. Each row of this table represents the true book each word came from, and each column represents what book it was assigned to."}
+library(scales)
+
+assignments %>%
+  count(title, consensus, wt = count) %>%
+  mutate(across(c(title, consensus), ~str_wrap(., 20))) %>%
+  group_by(title) %>%
+  mutate(percent = n / sum(n)) %>%
+  ggplot(aes(consensus, title, fill = percent)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", label = percent_format()) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank()) +
+  labs(x = "Book words were assigned to",
+       y = "Book words came from",
+       fill = "% of assignments")
+```
+
+*Pride and Prejudice*, *Twenty Thousand Leagues Under the Sea*, *War of the Worlds*에는 거의 모든 단어가 올바르게 할당된 반면 *Great Expectations*에는 잘못 분류된 단어가 있는 것으로 나타난다.  
+
+그렇다면 가장 많이 잘못 분류된 단어가 무엇인지 확인해 보자.  
+
+```{r wrong_words, dependson = "assignments2"}
+wrong_words <- assignments %>%
+  filter(title != consensus)
+
+wrong_words
+
+wrong_words %>%
+  count(title, consensus, term, wt = count) %>%
+  ungroup() %>%
+  arrange(desc(n))
+```
+
+*Great Expectations*에 쓰였던 단어들이 *Pride and Prejudice* 혹은 *War of the Worlds* cluster에도 할당된 것을 볼 수 있다. "love"나 "lady"와 같은 단어들은 *Pride and Prejudice*에서 더 일반적으로 사용되기 때문이다. 이는 단어가 사용된 횟수를 조사하면 알 수 있다.  
+
+반면 잘못 분류되어 소설에는 등장하지 않는 단어가 몇 개 있다. 예를 들어 "flopson"는 *Pride and Prejudice* cluster에 할당되었지만 실제로는 *Great Expectations*에만 쓰여진다.  
+
+```{r dependson = "word_counts"}
+word_counts %>%
+  filter(word == "flopson")
+```
+
+LDA 알고리즘은 확률적으로 추정하기 때문에 한 토픽이 여러 책에 걸쳐 있는 것으로 볼 가능성도 있다.  
+
+## Alternative LDA implementations
+
+`topicmodels::LDA()`는 latent Dirichlet allocation algorithm 구현방법 중 하나일 뿐이다. 예를 들어  [mallet](https://cran.r-project.org/package=mallet) package 는 [MALLET](http://mallet.cs.umass.edu/) 텍스트 분류 도구를 위한 Java package이다. `tidytext`package에서는 이 모델의 출력물을 tidy format으로 변환하는 것 또한 지원한다.    
+
+`mallet`package는 입력 형식이 약간 다르다. 예를 들어 토큰화되지 않은 문서를 가져와 자체적으로 토큰화를 수행하고 별도의 stopwords 파일을 필요로 한다. 이것은 LDA를 수행하기 전에 각 문서에 대해 텍스트를 하나의 문자열로 만들어줘야 함을 뜻한다.  
+
+```{r cache = FALSE, echo = FALSE}
+library(dplyr)
+library(tidytext)
+library(stringr)
+
+library(ggplot2)
+theme_set(theme_light())
+```
+
+```{r mallet_model, results = "hide", cache = FALSE, eval = FALSE}
+Sys.setenv(JAVA_HOME='C:/Program Files (x86)/Java/jre1.8.0_121')
+library(rJava)
+library(mallet)
+
+# create a vector with one string per chapter
+collapsed <- by_chapter_word %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word = str_replace(word, "'", "")) %>%
+  group_by(document) %>%
+  summarize(text = paste(word, collapse = " "))
+
+# create an empty file of "stopwords"
+file.create(empty_file <- tempfile())
+docs <- mallet.import(collapsed$document, collapsed$text, empty_file)
+
+mallet_model <- MalletLDA(num.topics = 4)
+mallet_model$loadDocuments(docs)
+mallet_model$train(100)
+```
+
+(자바 설치 문제로 인해 `mallet`package를 실행할 수 없는 상태지만) 일단 모델을 생성하면 `tidy()`와 `argument()`를 동일한 방식으로 사용할 수 있다. 이렇게 하면 각 토픽 또는 각 문서 내의 토픽과 관련된 단어의 확률을 추출 할 수 있다.  
+
+```{r cache = FALSE, eval = FALSE}
+# word-topic pairs
+tidy(mallet_model)
+
+# document-topic pairs
+tidy(mallet_model, matrix = "gamma")
+
+# column needs to be named "term" for "augment"
+term_counts <- rename(word_counts, term = word)
+augment(mallet_model, term_counts)
+```
+
+LDA 결과물과 동일한 방식으로 ggplot2를 사용하여 모델을 탐색하고 시각화 할 수 있다.  
+
+## Summary
+
+이 챕터에서는 문서 셋을 특징짓는 단어 클러스터를 찾기 위한 방법으로 토픽 모델링을 소개하고 `tidy()`를 사용하여 dplyr나 ggplot2로 모델을 탐색하고 시각화 하는 방법을 알아봤다. 이는 모델 탐색을 위한 tidy format의 장점 중 하나이다. 다양한 출력 형식 문제는 tidy function을 이용하여 처리할 수 있고 표준 명령어를 이용해서 모델 결과를 탐색할 수 있다. 특히 토픽 모델링이 4권의 책에서 챕터를 분리하고 구별할 수 있음을 확인했고 잘못 할당된 단어와 챕터를 찾아보는 것도 해보았다.  
